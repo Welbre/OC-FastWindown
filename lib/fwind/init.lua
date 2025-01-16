@@ -343,29 +343,39 @@ function Application:throws(...)
 end
 
 ---@param self Application
-local function renderThread(self, dt)
+---@param show_fps boolean if the fps will be print on top right.
+local function renderThread(self, dt, show_fps)
     local event = require("event")
     local idx_of_interrupt = event.listen("interrupted", function() self.isRunning = false end)
 
-    while self.isRunning do
-        local t0 = os.clock()
+    if show_fps then
+        while self.isRunning do
+            local t0 = os.clock()
 
-        local ok, err_msg = pcall(self.render, self)
-        if not ok then self:throws(err_msg) break end
+            local ok, err_msg = pcall(self.render, self)
+            if not ok then self:throws(err_msg) break end
 
-
-        local t1 = os.clock()
-        fdraw.gpu.setActiveBuffer(self.buffer_idx)
-        fdraw.gpu.setBackground(0xcccccc)
-        fdraw.gpu.setForeground(0x888800)
-        if t1-t0 >= dt then
-            fdraw.gpu.set(1,1, "gpu overload!")
-        else
-            fdraw.gpu.set(1,1, "fps:" .. (1/(t1-t0)))
+            local t1 = os.clock()
+            fdraw.gpu.setActiveBuffer(self.buffer_idx)
+            fdraw.gpu.setBackground(0xcccccc)
+            fdraw.gpu.setForeground(0x888800)
+            if t1-t0 >= dt then
+                fdraw.gpu.set(1,1, "gpu overload!")
+            else
+                fdraw.gpu.set(1,1, "fps:" .. (1/(t1-t0)))
+            end
+            fdraw.gpu.bitblt(0, self.x, self.y, self.w, self.h, self.buffer_idx)
+            os.sleep(dt)
         end
-        fdraw.gpu.bitblt(0, self.x, self.y, self.w, self.h, self.buffer_idx)
-        os.sleep(dt)
+    else
+        while self.isRunning do
+            local ok, err_msg = pcall(self.render, self)
+            if not ok then self:throws(err_msg) break end
+            fdraw.gpu.bitblt(0, self.x, self.y, self.w, self.h, self.buffer_idx)
+            os.sleep(dt)
+        end
     end
+
 
     event.cancel(idx_of_interrupt)
 
@@ -373,9 +383,10 @@ local function renderThread(self, dt)
 end
 
 ---@param frequence integer
-function Application:run(frequence)
+---@param show_fps boolean? if the fps will be print on top right.
+function Application:run(frequence, show_fps)
     self.isRunning = true
-    renderThread(self, (1/frequence) or 0.1)
+    renderThread(self, (1/frequence) or 0.1, show_fps or false)
 end
 
 function Application:close()
