@@ -386,4 +386,4 @@ function Application:close()
     for _, idx in pairs(self.occ_listeners) do event.cancel(idx) end
 end
 
-return {Rectangle = rect, Windown = Windown, Application = Application}
+return {Rectangle = rect, Windown = Windown, Application = Application, fdraw = fdraw}
