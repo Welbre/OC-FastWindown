@@ -100,9 +100,10 @@ function Windown:new(x, y, width, height, father)
     instance.buffer_idx = fdraw.new(width, height)
     instance.render_pipe = {}
     instance.children = {}
-    instance.father = father
     instance.isDirt = true
     instance.listeners = {}
+
+    if father then father:addChild(instance) end
 
     setmetatable(instance, self)
     self.__index = self
@@ -236,8 +237,7 @@ function Windown:runListener(_type, app, ...)
 
     if array then
         for _,v in pairs(array) do
-            local ok, err = pcall(v, self, app, ...)
-            if not ok then app:throws(err) return true end
+            app:addListenerRun(v, self, ...)
         end
     end
 
@@ -285,6 +285,7 @@ function Application:new(x, y, width, height)
 
     instance.isRunning = false
     instance.occ_listeners = {}
+    instance.listenersRun = {}
     createListeners(instance)
 
     setmetatable(instance, self)
@@ -349,8 +350,10 @@ local function renderThread(self, dt, show_fps)
     local idx_of_interrupt = event.listen("interrupted", function() self.isRunning = false end)
 
     if show_fps then
+        ::continue::
         while self.isRunning do
             local t0 = os.clock()
+            if not self:executeAllListenersRun() then goto continue end
 
             local ok, err_msg = pcall(self.render, self)
             if not ok then self:throws(err_msg) break end
@@ -368,7 +371,10 @@ local function renderThread(self, dt, show_fps)
             os.sleep(dt)
         end
     else
+        ::continue::
         while self.isRunning do
+            if not self:executeAllListenersRun() then goto continue end
+
             local ok, err_msg = pcall(self.render, self)
             if not ok then self:throws(err_msg) break end
             fdraw.gpu.bitblt(0, self.x, self.y, self.w, self.h, self.buffer_idx)
@@ -395,6 +401,26 @@ function Application:close()
     --Stop all occ_listeners
     local event = require("event")
     for _, idx in pairs(self.occ_listeners) do event.cancel(idx) end
+end
+
+---@param fun function
+---@param wind Windown the windown that will be run the listener
+---@package
+function Application:addListenerRun(fun, wind, ...)
+   table.insert(self.listenersRun, {fun, wind, {...}})
+end
+---@package
+function Application:executeAllListenersRun()
+    for _, data in pairs(self.listenersRun) do
+        local ok, err = pcall(data[1], data[2], self, table.unpack(data[3]))
+        if not ok then 
+            self:throws(err)
+            self.listenersRun = {}
+            return false
+        end
+    end
+    self.listenersRun = {}
+    return true
 end
 
 return {Rectangle = rect, Windown = Windown, Application = Application, fdraw = fdraw}
