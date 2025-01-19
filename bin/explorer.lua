@@ -1,4 +1,5 @@
 local fwind = require("fwind")
+local gui = require("fwind.gui")
 local fs = require("filesystem")
 local shell = require("shell")
 
@@ -7,12 +8,43 @@ local selected_dir = ""
 
 app = fwind.Application:new(1, 1, screen_resolution[1], screen_resolution[2])
 
+local function resolve_path(path, ext)
+    local dir = path
+    if dir:find("/") ~= 1 then
+      dir = fs.concat(selected_dir, dir)
+    end
+    local name = fs.name(path)
+    dir = fs[name and "path" or "canonical"](dir)
+    local fullname = fs.concat(dir, name or "")
+
+    if not ext then
+      return fullname
+    elseif name then
+      -- search for name in PATH if no dir was given
+      -- no dir was given if path has no /
+      local search_in = path:find("/") and dir or os.getenv("PATH")
+      for search_path in string.gmatch(search_in, "[^:]+") do
+        -- resolve search_path because they may be relative
+        local search_name = fs.concat(resolve_path(search_path), name)
+        if not fs.exists(search_name) then
+          search_name = search_name .. "." .. ext
+        end
+        -- extensions are provided when the caller is looking for a file
+        if fs.exists(search_name) and not fs.isDirectory(search_name) then
+          return search_name
+        end
+      end
+    end
+
+    return nil, "file not found"
+  end
+
 local cd
 
 local function createNewFolder(name)
     local folder = fwind.Application:new(1, 1, 10, 5)
     local fd = folder:begingRender()
-    if fs.isDirectory(shell.resolve(name)) then
+    if fs.isDirectory(resolve_path(name)) then
         fd.setb(0xffdd00)
     else
         fd.setb(0x4444ff)
@@ -40,7 +72,7 @@ end
 
 local function setDir(path)
     selected_dir = path
-    shell.setWorkingDirectory(selected_dir)
+
     for _, child in pairs(app.children) do
         child:close()
     end
@@ -67,7 +99,7 @@ local function setDir(path)
 end
 
 cd = function(path)
-    local resolved = shell.resolve(path)
+    local resolved = resolve_path(path)
     if fs.isDirectory(resolved) then
         setDir(resolved)
     else

@@ -50,13 +50,13 @@ end
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 ---@class Rectangle : Transfomation2D
-local rect = setmetatable({}, Transform2D)
+local Rectangle = setmetatable({}, Transform2D)
 ---@param x integer
 ---@param y integer
 ---@param width integer
 ---@param height integer
 ---@param transform_father Transfomation2D?
-function rect:new(x, y, width, height, transform_father)
+function Rectangle:new(x, y, width, height, transform_father)
     ---@class Rectangle
     local instance = Transform2D:new(x, y, transform_father)
     instance.w = width
@@ -67,7 +67,7 @@ function rect:new(x, y, width, height, transform_father)
     return instance
 end
 
-function rect:isInside(x, y)
+function Rectangle:isInside(x, y)
     assert(self, "self is null!")
     assert(x, "x is null!")
     assert(y, "y is null!")
@@ -80,30 +80,24 @@ function rect:isInside(x, y)
 end
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
-----------------------------------------------------------------------Windown----------------------------------------------------------------------------------
+-----------------------------------------------------------------------Canvas----------------------------------------------------------------------------------
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 local fdraw = require("fdraw").setVersion(1)
 
----@class Windown : Rectangle
----@field buffer_idx integer
----@field children Windown[]
----@field render_pipe fun(fd:FdrawRelease ,self:Windown)[]
----@field isDirt boolean
----@field package listeners table<string, fun(windown:Windown, app:Application, ...)[]>
-local Windown = setmetatable({}, rect)
+---@class Canvas : Rectangle
+local Canvas = setmetatable({}, Rectangle)
 
----@param father Windown?
-function Windown:new(x, y, width, height, father)
-    ---@class Windown
-    local instance = rect:new(x, y, width, height, father)
+---@param x integer
+---@param y integer
+---@param width integer
+---@param height integer
+---@param transform_father Transfomation2D?
+function Canvas:new(x, y, width, height, transform_father)
+    ---@class Canvas
+    local instance = Rectangle:new(x, y, width, height, transform_father)
     instance.buffer_idx = fdraw.new(width, height)
     instance.render_pipe = {}
-    instance.children = {}
-    instance.isDirt = true
-    instance.listeners = {}
-
-    if father then father:addChild(instance) end
 
     setmetatable(instance, self)
     self.__index = self
@@ -111,11 +105,62 @@ function Windown:new(x, y, width, height, father)
     return instance
 end
 
----Start the render process in the windown vram buffer, don't forget to use Windown:doneRender to finish the render session.
-function Windown:begingRender()
+---Start the render process in the canvas vram buffer, don't forget to use Canvas:doneRender to finish the render session.
+function Canvas:begingRender()
     fdraw.select(self.buffer_idx)
     return fdraw
 end
+
+---Finish the render session.
+function Canvas:doneRender()
+    fdraw.flush()
+end
+
+function Canvas:render()
+    fdraw.select(self.buffer_idx)
+    for _, r in pairs(self.render_pipe) do
+        fdraw.draw(r, fdraw, self)
+        fdraw.flush()
+    end
+end
+
+---@param fun fun(fd:FdrawRelease, this:Windown)
+function Canvas:addRender(fun)
+    assert(fun, "Function can't be null!", 2)
+    table.insert(self.render_pipe, fun)
+end
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------Windown----------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+---@class Windown : Canvas
+---@field buffer_idx integer
+---@field children Windown[]
+---@field render_pipe fun(fd:FdrawRelease ,self:Windown)[]
+---@field isDirt boolean
+---@field father Windown?
+---@field package listeners table<string, fun(windown:Windown, app:Application, ...)[]>
+local Windown = setmetatable({}, Canvas)
+
+---@param father Windown?
+function Windown:new(x, y, width, height, father)
+    ---@class Windown
+    local instance = Canvas:new(x, y, width, height, father)
+    instance.buffer_idx = fdraw.new(width, height)
+    instance.render_pipe = {}
+    instance.children = {}
+    instance.isDirt = true
+    instance.listeners = {}
+
+    setmetatable(instance, self)
+    self.__index = self
+
+    if father then father:addChild(instance) end
+
+    return instance
+end
+
 ---@param skipChild boolean if the children render will be skiped
 function Windown:doneRender(skipChild)
     --Dirt all father to force this windown to be re drawed
@@ -150,12 +195,6 @@ end
 function Windown:dirt()
     self.isDirt = true
     if self.father then self.father:dirt() end
-end
-
----@param fun fun(fd:FdrawRelease, this:Windown)
-function Windown:addRender(fun)
-    assert(fun, "Function can't be null!", 2)
-    table.insert(self.render_pipe, fun)
 end
 
 ---@generic T : Windown
@@ -423,4 +462,4 @@ function Application:executeAllListenersRun()
     return true
 end
 
-return {Rectangle = rect, Windown = Windown, Application = Application, fdraw = fdraw}
+return {Rectangle = Rectangle, Windown = Windown, Application = Application, fdraw = fdraw}
