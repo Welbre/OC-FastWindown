@@ -6,14 +6,16 @@
 ---@field cache Transfomation2D?
 local Transform2D = {}
 
+---@param instance table?
 ---@param x number
 ---@param y number
 ---@param transform_father Transfomation2D?
-function Transform2D:new(x, y, transform_father)
+function Transform2D:new(x, y, transform_father, instance)
     assert(x, "x is null!")
     assert(y, "y is null!")
     ---@class Transfomation2D
-    local instance = setmetatable({x=x, y=y, transform_father = transform_father}, Transform2D)
+    instance = setmetatable(instance or {}, Transform2D)
+    instance.x, instance.y, instance.transform_father = x, y, transform_father
     self.__index = self
     instance.cache = nil
 
@@ -51,14 +53,16 @@ end
 
 ---@class Rectangle : Transfomation2D
 local Rectangle = setmetatable({}, Transform2D)
+
+---@param instance table?
 ---@param x integer
 ---@param y integer
 ---@param width integer
 ---@param height integer
 ---@param transform_father Transfomation2D?
-function Rectangle:new(x, y, width, height, transform_father)
+function Rectangle:new(x, y, width, height, transform_father, instance)
     ---@class Rectangle
-    local instance = Transform2D:new(x, y, transform_father)
+    instance = Transform2D:new(x, y, transform_father, instance)
     instance.w = width
     instance.h = height
     setmetatable(instance, self)
@@ -88,14 +92,15 @@ local fdraw = require("fdraw").setVersion(1)
 ---@class Canvas : Rectangle
 local Canvas = setmetatable({}, Rectangle)
 
+---@param instance table?
 ---@param x integer
 ---@param y integer
 ---@param width integer
 ---@param height integer
 ---@param transform_father Transfomation2D?
-function Canvas:new(x, y, width, height, transform_father)
+function Canvas:new(x, y, width, height, transform_father, instance)
     ---@class Canvas
-    local instance = Rectangle:new(x, y, width, height, transform_father)
+    instance = Rectangle:new(x, y, width, height, transform_father, instance)
     instance.buffer_idx = fdraw.new(width, height)
     instance.render_pipe = {}
 
@@ -131,34 +136,127 @@ function Canvas:addRender(fun)
 end
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------EventHandler--------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+---@alias oc_listeners_type "key_down" | "key_up" | "touch" | "drag" | "drop" | "scroll"
+---@class EventHandler
+---@field package listeners table<string, fun(handler:EventHandler, app:Application, ...)[]>
+local EventHandler = {}
+
+---@param instance table?
+function EventHandler:new(instance)
+    ---@class EventHandler
+    instance = instance or {}
+    instance.listeners = {}
+
+    setmetatable(instance, self)
+    self.__index = self
+
+    return instance
+end
+
+---@param _type oc_listeners_type
+---@param fun fun(self:EventHandler, application:Application, ...)
+function EventHandler:addListener(_type, fun)
+    if type(_type) ~= "string" then error("Bad argument #1 (string expected, got " .. type(_type) .. ")", 2) end
+    if type(fun) ~= "function" then error("Bad argument #2 (function expected, got " .. type(fun) .. ")", 2) end
+    local array = self.listeners[_type]
+    ---Create if don't exist
+    if not array then array = {} self.listeners[_type] = array end
+    table.insert(array, fun)
+end
+
+---@param _type string | oc_listeners_type
+---@param app Application
+---@return boolean
+function EventHandler:runListener(_type, app, ...)
+    if type(_type) ~= "string" then error("Bad argument #1 (string expected, got " .. type(_type) .. ")", 2) end
+    if type(app) ~= "table" then error("Bad argument #2 (table expected, got " .. type(app) .. ")", 2) end
+    local array = self.listeners[_type]
+
+    if array then
+        for _,v in pairs(array) do
+            app:addListenerRun(v, self, ...)
+        end
+        return true
+    else
+        return false
+    end
+end
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------Windown----------------------------------------------------------------------------------
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
 
----@class Windown : Canvas
+---@class Windown : Canvas, EventHandler
 ---@field buffer_idx integer
 ---@field children Windown[]
 ---@field render_pipe fun(fd:FdrawRelease ,self:Windown)[]
 ---@field isDirt boolean
 ---@field father Windown?
----@field package listeners table<string, fun(windown:Windown, app:Application, ...)[]>
-local Windown = setmetatable({}, Canvas)
+local Windown
+Windown = setmetatable({}, {__index = function (tb, key)
+    if rawget(Windown, key) then return Windown[key] end
+    if Canvas[key] then return Canvas[key] end
+    return EventHandler[key]
+end})
+Windown.__index = Windown
 
+---@param x integer
+---@param y integer
+---@param width integer
+---@param height integer
+---@param instance table?
 ---@param father Windown?
-function Windown:new(x, y, width, height, father)
+function Windown:new(x, y, width, height, father, instance)
     ---@class Windown
-    local instance = Canvas:new(x, y, width, height, father)
+    instance = instance or {}
+    Canvas:new(x, y, width, height, father, instance)
+    EventHandler:new(instance)
+
+    setmetatable(instance, Windown)
+    self.__index = self
+
     instance.buffer_idx = fdraw.new(width, height)
     instance.render_pipe = {}
     instance.children = {}
     instance.isDirt = true
     instance.listeners = {}
 
-    setmetatable(instance, self)
-    self.__index = self
-
     if father then father:addChild(instance) end
 
     return instance
+end
+
+---@param _type string | oc_listeners_type
+---@param app Application
+---@return boolean
+function Windown:runListener(_type, app, ...)
+    local array = self.listeners[_type]
+    ---Check if the type have a position, if true verify if the possition is on windown
+    if (_type == "touch") or (_type == "drop") or (_type == "drag") or (_type == "scroll") then
+        local args = {...}
+        if not self:isInside(args[2], args[3]) then return false end
+        ---Check if a children can handle the click
+        ---If true, this means that the children is in front of this window, so return to avoid that the listeners of this window ran!
+        for i=#self.children, 1, -1 do
+            local child = self.children[i]
+            if child:runListener(_type, app, ...) then return true end
+        end
+    else
+        ---Run in recustion to reach all children
+        for _, child in pairs(self.children) do child:runListener(_type, app, ...) end
+        return true
+    end
+
+    if array then
+        for _,v in pairs(array) do
+            app:addListenerRun(v, self, ...)
+        end
+    end
+
+    return true
 end
 
 ---@param skipChild boolean if the children render will be skiped
@@ -240,49 +338,6 @@ function Windown:removeChild(child)
     return false
 end
 
----@alias oc_listeners_type "key_down" | "key_up" | "touch" | "drag" | "drop" | "scroll"
-
----@param _type oc_listeners_type
----@param fun fun(self:Windown, application:Application, ...)
-function Windown:addListener(_type, fun)
-    if type(_type) ~= "string" then error("Bad argument #1 (string expected, got " .. type(_type) .. ")", 2) end
-    if type(fun) ~= "function" then error("Bad argument #2 (function expected, got " .. type(_type) .. ")", 2) end
-    local array = self.listeners[_type]
-    ---Create if don't exist
-    if not array then array = {} self.listeners[_type] = array end
-    table.insert(array, fun)
-end
-
----@param _type string
----@param app Application
----@return boolean
-function Windown:runListener(_type, app, ...)
-    local array = self.listeners[_type]
-    ---Check if the type have a position, if true verify if the possition is on windown
-    if (_type == "touch") or (_type == "drop") or (_type == "drag") or (_type == "scroll") then
-        local args = {...}
-        if not self:isInside(args[2], args[3]) then return false end
-        ---Check if a children can handle the click
-        ---If true, this means that the children is in front of this window, so return to avoid that the listeners of this window ran!
-        for i=#self.children, 1, -1 do
-            local child = self.children[i]
-            if child:runListener(_type, app, ...) then return true end
-        end
-    else
-        ---Run in recustion to reach all children
-        for _, child in pairs(self.children) do child:runListener(_type, app, ...) end
-        return true
-    end
-
-    if array then
-        for _,v in pairs(array) do
-            app:addListenerRun(v, self, ...)
-        end
-    end
-
-    return true
-end
-
 ---@param x integer
 ---@param y integer
 function Windown:setPosition(x, y)
@@ -318,17 +373,19 @@ local function createListeners(app)
     table.insert(app.occ_listeners, event.listen(handle_listener("touch", app)))
 end
 
-function Application:new(x, y, width, height)
+---@param instance table?
+function Application:new(x, y, width, height, instance)
     ---@class Application
-    local instance = Windown:new(x, y, width, height, nil)
+    instance = Windown:new(x, y, width, height, nil, instance)
 
     instance.isRunning = false
     instance.occ_listeners = {}
     instance.listenersRun = {}
-    createListeners(instance)
 
     setmetatable(instance, self)
     self.__index = self
+
+    createListeners(instance)
 
     return instance
 end
@@ -443,10 +500,10 @@ function Application:close()
 end
 
 ---@param fun function
----@param wind Windown the windown that will be run the listener
+---@param handler EventHandler the event handler that will be run the listener.
 ---@package
-function Application:addListenerRun(fun, wind, ...)
-   table.insert(self.listenersRun, {fun, wind, {...}})
+function Application:addListenerRun(fun, handler, ...)
+   table.insert(self.listenersRun, {fun, handler, {...}})
 end
 ---@package
 function Application:executeAllListenersRun()
