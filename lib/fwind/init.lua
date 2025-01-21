@@ -129,7 +129,7 @@ function Canvas:render()
     end
 end
 
----@param fun fun(fd:FdrawRelease, this:Windown)
+---@param fun fun(fd:FdrawRelease, self:Windown)
 function Canvas:addRender(fun)
     assert(fun, "Function can't be null!", 2)
     table.insert(self.render_pipe, fun)
@@ -199,8 +199,8 @@ end
 ---@field render_pipe fun(fd:FdrawRelease ,self:Windown)[]
 ---@field isDirt boolean
 ---@field father Windown?
-local Windown
-Windown = setmetatable({}, {__index = function (tb, key)
+local Windown = {}
+setmetatable(Windown, {__index = function (tb, key)
     if rawget(Windown, key) then return Windown[key] end
     if Canvas[key] then return Canvas[key] end
     return EventHandler[key]
@@ -337,6 +337,15 @@ function Windown:removeChild(child)
         end
     end
     return false
+end
+
+---@param close? boolean If the children must be closed, (True by default).
+---@return Windown[]
+function Windown:removeAllChildrens(close)
+    if close or true then for _, child in pairs(self.children) do child:close() end end
+    local ls = self.children
+    self.children = {}
+    return ls
 end
 
 ---@param x integer
@@ -490,6 +499,7 @@ end
 function Application:run(frequence, show_fps)
     self.isRunning = true
     renderThread(self, (1/frequence) or 0.1, show_fps or false)
+    require("term").clear()
 end
 
 function Application:close()
@@ -520,4 +530,4 @@ function Application:executeAllListenersRun()
     return true
 end
 
-return {Rectangle = Rectangle, Windown = Windown, Application = Application, fdraw = fdraw}
+return {Canvas = Canvas, EventHandler = EventHandler, Rectangle = Rectangle, Windown = Windown, Application = Application, fdraw = fdraw}

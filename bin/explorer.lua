@@ -37,12 +37,14 @@ local function resolve_path(path, ext)
     end
 
     return nil, "file not found"
-  end
+end
 
 local cd
+local setDir
+local getList
 
 local function createNewFolder(name)
-    local folder = fwind.Application:new(1, 1, 10, 5)
+    local folder = fwind.Windown:new(1, 1, 10, 5)
     local fd = folder:begingRender()
     if fs.isDirectory(resolve_path(name)) then
         fd.setb(0xffdd00)
@@ -62,31 +64,47 @@ local function createNewFolder(name)
     return folder
 end
 
-local function getList(path)
-    local ins = {}
+function getList(path)
+    local list = {}
     for fn in fs.list(path) do
-        table.insert(ins, fn)
+        table.insert(list, fn)
     end
-    return ins
+    table.sort(list)
+    return list
 end
 
-local function setDir(path)
-    selected_dir = path
-
-    for _, child in pairs(app.children) do
-        child:close()
+function cd(path)
+    local resolved = resolve_path(path)
+    if fs.isDirectory(resolved) then
+        setDir(resolved)
+    else
+        os.execute("edit " .. resolved)
     end
-    local x = 1
-    local y = 1
+end
+
+function setDir(dir)
+    selected_dir = dir
+    app:removeAllChildrens()
+
+    local x, y = 1, 1
     local back = app:addChild(createNewFolder(".."))
-    back:setPosition(x, y)
-    x = x + 11
-    local list = getList(path)
-    table.sort(list)
-    for _, fn in pairs(list) do
-        local folder = app:addChild(createNewFolder(fn))
-        folder:setPosition(x, y)
-        x = x + 11
+    local close = fwind.Windown:new(151,46,10,5)
+    local fd = close:begingRender()
+    fd.setb(0xff0000)
+    fd.fill(1, 1, 10, 5, " ")
+    close:doneRender(true)
+    close:addListener("touch", function (self, application, ...)
+        application:close()
+    end)
+
+    app:addChild(close)
+
+    back.x, back.y = 1, 1
+    x = x + 12
+    for _,name in ipairs(getList(selected_dir)) do
+        local folder = app:addChild(createNewFolder(name))
+        folder.x,folder.y = x, y
+        x = x + 12
         if (x + 10) > screen_resolution[1] then
             x = 1
             y = y + 6
@@ -94,16 +112,6 @@ local function setDir(path)
                 break
             end
         end
-    end
-
-end
-
-cd = function(path)
-    local resolved = resolve_path(path)
-    if fs.isDirectory(resolved) then
-        setDir(resolved)
-    else
-        os.execute("edit " .. resolved)
     end
 end
 
