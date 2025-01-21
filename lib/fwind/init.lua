@@ -135,6 +135,10 @@ function Canvas:addRender(fun)
     table.insert(self.render_pipe, fun)
 end
 
+function Canvas:close()
+    fdraw.free(self.buffer_idx)
+end
+
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
 -------------------------------------------------------------------EventHandler--------------------------------------------------------------------------------
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -218,11 +222,8 @@ function Windown:new(x, y, width, height, father, instance)
     setmetatable(instance, Windown)
     self.__index = self
 
-    instance.buffer_idx = fdraw.new(width, height)
-    instance.render_pipe = {}
     instance.children = {}
     instance.isDirt = true
-    instance.listeners = {}
 
     if father then father:addChild(instance) end
 
@@ -347,7 +348,7 @@ function Windown:setPosition(x, y)
 end
 
 function Windown:close()
-    fdraw.free(self.buffer_idx)
+    Canvas.close(self)
     for _, child in pairs(self.children) do child:close() end
 end
 
